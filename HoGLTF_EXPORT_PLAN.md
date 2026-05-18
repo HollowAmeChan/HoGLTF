@@ -40,6 +40,34 @@ HO_materials_openpbr_lil
 - `glTF2ExportUserExtension`，这是 glTF-Blender-IO 要求的精确类名。
 - `gather_material_hook`，在每个 glTF material 生成后追加我们的 material extension。
 
+`material_contract.py` 里现在有：
+
+- 查找材质节点树中的 `HoGLTF` 自定义节点组。
+- 读取这个节点组的输入 socket 默认值。
+- 把输入写入 `HO_materials_principled_lil` extension 的 `hogltf.inputs`。
+
+当前导出的 JSON 形状类似：
+
+```json
+{
+  "extensions": {
+    "HO_materials_principled_lil": {
+      "schema": "HO_materials_principled_lil",
+      "schemaVersion": 1,
+      "target": {
+        "shaderFamily": "auto"
+      },
+      "hogltf": {
+        "nodeGroup": "HoGLTF",
+        "inputs": {
+          "Param1": 0.42
+        }
+      }
+    }
+  }
+}
+```
+
 当前合同 JSON 是轻量骨架，不硬猜完整材质语义。真正的节点读取和字段映射应该对齐 `D:/Unity_Fork/lilToon/接口契约.md` 后再写。
 
 ## 为什么走 glTF extension，不只用 extras

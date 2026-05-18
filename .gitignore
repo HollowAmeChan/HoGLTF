@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+.vscode/
+.idea/
+
+*.blend1
+*.blend2
+*.blend@
+*.tmp
+*.log
+
+*.gltf
+*.glb
+*.bin
