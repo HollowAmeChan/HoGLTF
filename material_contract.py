@@ -2,6 +2,7 @@ import json
 
 
 HOGLTF_NODE_GROUP_NAME = "HoGLTF"
+HOGLTF_NODE_GROUP_PROPERTY = "hogltf_node_group"
 
 
 def find_hogltf_node(blender_material):
@@ -82,7 +83,7 @@ def read_hogltf_node_inputs(blender_material):
     return {
         "node": node.name,
         "nodeLabel": node.label,
-        "nodeGroup": node.node_tree.name if node.node_tree is not None else "",
+        "nodeGroup": _node_group_name(node),
         "inputs": inputs,
         "sockets": sockets,
     }
@@ -99,9 +100,7 @@ def _find_hogltf_node_in_tree(node_tree, visited):
             return node
 
     for node in node_tree.nodes:
-        if getattr(node, "type", "") != "GROUP":
-            continue
-        child_tree = getattr(node, "node_tree", None)
+        child_tree = _node_group_tree(node)
         if child_tree is None:
             continue
         found = _find_hogltf_node_in_tree(child_tree, visited)
@@ -112,18 +111,56 @@ def _find_hogltf_node_in_tree(node_tree, visited):
 
 
 def _is_hogltf_group_node(node):
-    if getattr(node, "type", "") != "GROUP":
-        return False
-    node_tree = getattr(node, "node_tree", None)
-    if node_tree is None:
+    group_tree = _node_group_tree(node)
+    if group_tree is None:
         return False
 
-    names = {
-        getattr(node, "name", ""),
-        getattr(node, "label", ""),
-        getattr(node_tree, "name", ""),
-    }
-    return any(name == HOGLTF_NODE_GROUP_NAME for name in names)
+    for owner in (node, group_tree):
+        marker = _custom_property_value(owner, HOGLTF_NODE_GROUP_PROPERTY)
+        if marker is not None:
+            return _is_truthy_marker(marker)
+
+    return _matches_hogltf_name(getattr(group_tree, "name", ""))
+
+
+def _node_group_tree(node):
+    if getattr(node, "type", "") == "GROUP":
+        return getattr(node, "node_tree", None)
+
+    if getattr(node, "bl_idname", "") == "ShaderNodeGroup":
+        return getattr(node, "node_tree", None)
+
+    return None
+
+
+def _node_group_name(node):
+    group_tree = _node_group_tree(node)
+    return group_tree.name if group_tree is not None else ""
+
+
+def _matches_hogltf_name(name):
+    if name == HOGLTF_NODE_GROUP_NAME:
+        return True
+
+    prefix = f"{HOGLTF_NODE_GROUP_NAME}."
+    if not name.startswith(prefix):
+        return False
+
+    suffix = name[len(prefix):]
+    return len(suffix) == 3 and suffix.isdigit()
+
+
+def _custom_property_value(data_block, property_name):
+    try:
+        return data_block.get(property_name)
+    except AttributeError:
+        return None
+
+
+def _is_truthy_marker(value):
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _socket_default_value(socket):
