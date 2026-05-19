@@ -13,6 +13,9 @@ from pathlib import Path
 
 import bpy
 
+from . import asset_registry
+from . import asset_conversion
+from .adapters import blender_ir
 from .material_contract import build_material_contract
 from .material_contract import should_export_material_contract
 
@@ -88,6 +91,40 @@ class HoGLTFMaterialSettings(bpy.types.PropertyGroup):
     ) # type: ignore
 
 
+class HOGLTF_OT_register_asset_library(bpy.types.Operator):
+    bl_idname = "hogltf.register_asset_library"
+    bl_label = "注册 HoGLTF 内置资产库"
+    bl_description = "将 HoGLTF 内置资产库注册到 Blender 资产库中，可在资产浏览器中使用材质契约节点组"
+
+    def execute(self, context):
+        asset_path = asset_registry.ASSETS_ROOT
+        if asset_registry.asset_library_exists(asset_path):
+            self.report({"INFO"}, "HoGLTF 内置资产库已经注册过了")
+            return {"CANCELLED"}
+
+        if not asset_registry.register_asset_library(asset_registry.BUILTIN_ASSET_LIBRARY_NAME, asset_path):
+            self.report({"ERROR"}, f"HoGLTF 内置资产库不存在：{asset_path}")
+            return {"CANCELLED"}
+
+        self.report({"INFO"}, "HoGLTF 内置资产库已注册")
+        return {"FINISHED"}
+
+
+class HoGLTFAddonPreferences(bpy.types.AddonPreferences):
+    bl_idname = __name__
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row(align=True)
+        row.alert = True
+        row.operator(HOGLTF_OT_register_asset_library.bl_idname, text="注册内置资产库")
+        row.alert = False
+
+        col = layout.column(align=True)
+        col.label(text=f"资产目录：{asset_registry.ASSETS_ROOT}")
+        col.label(text=f"契约资产：{asset_registry.LIL_MATERIAL_CONTRACT_BLEND.name}")
+
+
 class HOGLTF_PT_material_settings(bpy.types.Panel):
     bl_label = "HoGLTF"
     bl_idname = "HOGLTF_PT_material_settings"
@@ -154,12 +191,17 @@ def register():
 
     bpy.utils.register_class(HoGLTFExportSettings)
     bpy.utils.register_class(HoGLTFMaterialSettings)
+    bpy.utils.register_class(HOGLTF_OT_register_asset_library)
+    bpy.utils.register_class(HoGLTFAddonPreferences)
     bpy.utils.register_class(HOGLTF_PT_material_settings)
 
     bpy.types.Scene.hogltf_export = bpy.props.PointerProperty(type=HoGLTFExportSettings)
     bpy.types.Material.hogltf = bpy.props.PointerProperty(type=HoGLTFMaterialSettings)
 
     exporter_extension_layout_draw[UI_PANEL_KEY] = draw_export_settings
+    asset_conversion.register()
+    blender_ir.register()
+    asset_registry.ensure_builtin_asset_library()
 
 
 def unregister():
@@ -171,9 +213,14 @@ def unregister():
     except Exception:
         pass
 
+    blender_ir.unregister()
+    asset_conversion.unregister()
+
     del bpy.types.Material.hogltf
     del bpy.types.Scene.hogltf_export
 
     bpy.utils.unregister_class(HOGLTF_PT_material_settings)
+    bpy.utils.unregister_class(HoGLTFAddonPreferences)
+    bpy.utils.unregister_class(HOGLTF_OT_register_asset_library)
     bpy.utils.unregister_class(HoGLTFMaterialSettings)
     bpy.utils.unregister_class(HoGLTFExportSettings)

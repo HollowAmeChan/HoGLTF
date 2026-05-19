@@ -3,6 +3,7 @@ import json
 
 HOGLTF_NODE_GROUP_NAME = "HoGLTF"
 HOGLTF_NODE_GROUP_PROPERTY = "hogltf_node_group"
+HOGLTF_CONTRACT_GROUP_PROPERTY = "HoGLTFContract"
 
 
 def find_hogltf_node(blender_material):
@@ -78,6 +79,7 @@ def read_hogltf_node_inputs(blender_material):
             "type": getattr(socket, "bl_socket_idname", getattr(socket, "type", "")),
             "linked": bool(getattr(socket, "is_linked", False)),
             "value": socket_value,
+            "link": _socket_link_info(socket),
         })
 
     return {
@@ -119,6 +121,9 @@ def _is_hogltf_group_node(node):
         marker = _custom_property_value(owner, HOGLTF_NODE_GROUP_PROPERTY)
         if marker is not None:
             return _is_truthy_marker(marker)
+        contract_marker = _custom_property_value(owner, HOGLTF_CONTRACT_GROUP_PROPERTY)
+        if contract_marker is not None:
+            return True
 
     return _matches_hogltf_name(getattr(group_tree, "name", ""))
 
@@ -139,6 +144,9 @@ def _node_group_name(node):
 
 
 def _matches_hogltf_name(name):
+    if name.startswith("HoLilToon") or name == "HoLilPBR":
+        return True
+
     if name == HOGLTF_NODE_GROUP_NAME:
         return True
 
@@ -167,6 +175,34 @@ def _socket_default_value(socket):
     if not hasattr(socket, "default_value"):
         return None
     return _json_value(socket.default_value)
+
+
+def _socket_link_info(socket):
+    if not getattr(socket, "is_linked", False):
+        return None
+
+    links = getattr(socket, "links", [])
+    if len(links) == 0:
+        return None
+
+    link = links[0]
+    from_node = link.from_node
+    info = {
+        "fromNode": getattr(from_node, "name", ""),
+        "fromNodeType": getattr(from_node, "bl_idname", getattr(from_node, "type", "")),
+        "fromSocket": getattr(link.from_socket, "name", ""),
+    }
+
+    image = getattr(from_node, "image", None)
+    if image is not None:
+        info["image"] = {
+            "name": image.name,
+            "filepath": getattr(image, "filepath", ""),
+            "source": getattr(image, "source", ""),
+            "colorspace": getattr(getattr(image, "colorspace_settings", None), "name", ""),
+        }
+
+    return info
 
 
 def _json_value(value):

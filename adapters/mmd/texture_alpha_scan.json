@@ -1,0 +1,56 @@
+[
+  {
+    "name": "TEXB10.png",
+    "filepath": "E:\\BaiduSyncdisk\\大师\\_完整场景\\H2Cu阿相\\云蜃马戏团·有识月·H2CU式stage12-1_by_H2Cu阿相_efccb94a925cbee60cbf3254a017adac\\ST\\TEXB10.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "colorspace": "sRGB",
+    "alpha_mode": "NONE",
+    "min_alpha": 1.0,
+    "max_alpha": 1.0,
+    "zero_alpha_pixels": 0,
+    "mid_alpha_pixels": 0,
+    "opaque_alpha_pixels": 1048576,
+    "total_pixels": 1048576,
+    "has_cutout_alpha": false,
+    "has_blend_alpha": false
+  },
+  {
+    "name": "TEXA2.png",
+    "filepath": "E:\\BaiduSyncdisk\\大师\\_完整场景\\H2Cu阿相\\云蜃马戏团·有识月·H2CU式stage12-1_by_H2Cu阿相_efccb94a925cbee60cbf3254a017adac\\ST\\TEXA2.png",
+    "size": [
+      1024,
+      1024
+    ],
+    "colorspace": "sRGB",
+    "alpha_mode": "STRAIGHT",
+    "min_alpha": 1.0,
+    "max_alpha": 1.0,
+    "zero_alpha_pixels": 0,
+    "mid_alpha_pixels": 0,
+    "opaque_alpha_pixels": 1048576,
+    "total_pixels": 1048576,
+    "has_cutout_alpha": false,
+    "has_blend_alpha": false
+  },
+  {
+    "name": "T.png",
+    "filepath": "E:\\BaiduSyncdisk\\大师\\_完整场景\\H2Cu阿相\\云蜃马戏团·有识月·H2CU式stage12-1_by_H2Cu阿相_efccb94a925cbee60cbf3254a017adac\\ST\\T.png",
+    "size": [
+      32,
+      32
+    ],
+    "colorspace": "sRGB",
+    "alpha_mode": "NONE",
+    "min_alpha": 1.0,
+    "max_alpha": 1.0,
+    "zero_alpha_pixels": 0,
+    "mid_alpha_pixels": 0,
+    "opaque_alpha_pixels": 1024,
+    "total_pixels": 1024,
+    "has_cutout_alpha": false,
+    "has_blend_alpha": false
+  }
+]
