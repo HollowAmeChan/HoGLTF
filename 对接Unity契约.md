@@ -89,9 +89,13 @@ HO_HoGLTFNodeGroup      = hogltf.nodeGroup
 
 HoGLTF 契约节点组识别规则：
 
+- 优先从 active `Material Output.Surface` 的上游链路查找 HoGLTF 契约节点组。
+- 只有 active output 上游找不到时，才 fallback 到全节点树扫描。
 - 节点组或节点实例有自定义属性 `hogltf_node_group` 且值为 truthy。
 - 节点组或节点实例有自定义属性 `HoGLTFContract`。
 - 节点组名为 `HoGLTF`、`HoGLTF.###`、`HoLilToon*` 或 `HoLilPBR`。
+
+这个优先级很重要：自动转换会在原材质旁边追加新的 `HoLilToon*` / `HoLilPBR` 节点组和新的 active `Material Output`。导出端必须读取真正连到 active output 的 HoLil 组，不能误读旧 MMD 节点树或旁边未启用的候选组。
 
 ## 最小合法 JSON
 
@@ -240,6 +244,8 @@ Unity 当前只读取 `shaderFamily`。
 | `node` | string | 建议 | Blender 节点实例名。 |
 | `nodeLabel` | string | 建议 | Blender 节点 label。 |
 | `nodeGroup` | string | 必填 | 节点组名，是 Unity 后续 mapper 选择映射表的关键依据。 |
+| `nodeGroupContract` | string | 建议 | 节点组自定义属性 `HoGLTFContract`，例如 `lil-material`。 |
+| `nodeGroupVariant` | string | 建议 | 节点组自定义属性 `HoLilToonVariant`，例如 `standard`、`fur`、`pbr`。 |
 | `inputs` | object | 建议 | `socket.name -> value` 的简化映射。 |
 | `sockets` | array | 推荐 | 完整 socket 列表；Unity 当前优先读取它。 |
 
@@ -254,6 +260,15 @@ Unity 当前只读取 `shaderFamily`。
 | `name` | string | 是 | socket 显示名。 |
 | `identifier` | string | 是 | Blender socket identifier；Unity 映射应优先用它做稳定 key。 |
 | `type` | string | 是 | Blender socket 类型，例如 `NodeSocketFloat`、`NodeSocketColor`。 |
+| `description` | string | 是 | Blender socket description 原文。 |
+| `metadata` | object | 是 | 从 description 解析出的键值，例如 `priority`、`target`、`group`、`role`、`blend`。 |
+| `priority` | string | 是 | 常用 metadata 快捷字段。 |
+| `target` | string | 是 | 常用 metadata 快捷字段，通常是目标 Unity shader property 或用途。 |
+| `group` | string | 是 | 常用 metadata 快捷字段，例如 `mainColor`、`shadow`。 |
+| `role` | string | 是 | 常用 metadata 快捷字段，例如 `texture`、`colorFactor`。 |
+| `blend` | string | 是 | 常用 metadata 快捷字段，例如 `BaseTex*BaseColor`。 |
+| `min` | number/null | 否 | socket 最小值，能读取时写出。 |
+| `max` | number/null | 否 | socket 最大值，能读取时写出。 |
 | `linked` | bool | 是 | socket 是否有输入链接。 |
 | `value` | any | 是 | 默认值。Unity 会记录 value kind、原始 JSON 和常用 typed value。 |
 | `link` | object/null | 否 | Blender 侧链接来源信息，当前只保存在原始 JSON。 |
@@ -463,3 +478,51 @@ Unity 导入端当前必须保持：
 7. 确认导入资产下出现 `HoMaterialContractAsset` 子资源。
 8. 确认 `HoMaterialContractAsset.TargetShaderFamily` 和 `HoGltfInputs` 有值。
 9. 右键使用 Unity 调试菜单打印 HoGLTF 契约输入，确认 socket 名和值符合预期。
+
+## Unity 自动 lilToon 导入约定
+
+Unity 端 `HoMaterialsPrincipledLilImport` 当前会在导入材质时自动判断是否切换到 lilToon：
+
+- `target.shaderFamily == "lilToon"` 时启用 lilToon mapper。
+- 或者 `hogltf.nodeGroup` 以 `HoLilToon` 开头时启用 lilToon mapper。
+- 找不到目标 lilToon shader 时，不破坏 UnityGLTF 默认材质，只保留 HO override tags 和 `HoMaterialContractAsset`。
+- `applyLilToonMapping` 默认为开启；`applyUrpLitFallback` 仅在没有成功切到 lilToon 时才会执行。
+
+当前已映射的 HoLilToon socket：
+
+| HoLilToon socket | Unity lilToon property |
+| --- | --- |
+| `BaseColor` / `Alpha` / `BaseTex` | `_Color`、`_BaseColor`、`_MainTex` |
+| `AlphaMode` / `AlphaCutoff` / `TransparentMode` | shader 选择、`_Cutoff`、blend/ZWrite/renderQueue |
+| `CullMode` | `_Cull` |
+| `NormalTex` / `NormalScale` | `_BumpMap`、`_BumpScale`、`_UseBumpMap` |
+| `UseShadow` / `ShadowColor` / `ShadowTex` | `_UseShadow`、`_ShadowColor`、`_ShadowColorTex` |
+| `UseRim` / `RimColor` / `RimTex` | `_UseRim`、`_RimColor`、`_RimColorTex` |
+| `UseOutline` / `OutlineColor` / `OutlineTex` / `OutlineWidthMask` | outline shader variant、`_UseOutline`、`_OutlineColor`、`_OutlineTex`、`_OutlineWidthMask` |
+| `EmissionColor` / `EmissionTex` / `UseEmission` | `_EmissionColor`、`_EmissionMap`、`_UseEmission` |
+| `Metallic` / `MetallicTex` | `_Metallic`、`_MetallicGlossMap` |
+| `Roughness` | `_Smoothness = 1 - Roughness` |
+
+注意：`RoughnessTex` 不能直接写入 `_SmoothnessTex`，因为二者语义相反。Unity 端在实现贴图反相或生成 smoothness 贴图前，不应把 `RoughnessTex` 暴力直连到 `_SmoothnessTex`。
+
+## 独立贴图文件夹匹配约定
+
+HoGLTF 导出 `.gltf + .bin + tex/` 或 `.gltf + .bin + textures/` 是常规路径。Blender 端应继续在 `hogltf.sockets[].link.image` 写入：
+
+```json
+{
+  "name": "body_diffuse.png",
+  "filepath": "//textures/body_diffuse.png",
+  "source": "FILE",
+  "colorspace": "sRGB"
+}
+```
+
+Unity 端解析顺序：
+
+1. 先使用 UnityGLTF `OnAfterImportTexture` 回调登记的 Texture。
+2. 匹配键包括导入后的 `Texture.name`、glTF `texture.name`、glTF `image.name`、`image.uri`、完整相对路径、文件名、无扩展名。
+3. Editor 导入时，如果缓存未命中，会从 glTF 资产所在目录查找同名贴图，默认尝试同目录、`textures/`、`Textures/`、`tex/`、`Tex/`。
+4. 仍找不到时，使用 UnityGLTF 已经写入 PBR 材质的 base/normal/emission fallback 贴图。
+
+因此 Blender 端不必写 Unity asset GUID；稳定写出 `link.image.name` 和 `link.image.filepath` 即可。

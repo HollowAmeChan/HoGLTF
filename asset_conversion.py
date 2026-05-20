@@ -244,17 +244,19 @@ def build_contract_node_cluster(material, group, info, target_family, activate_o
     if "Shader" in contract.outputs:
         links.new(contract.outputs["Shader"], output.inputs["Surface"])
 
-    set_contract_input(contract, "BaseColor", info.diffuse_color)
-    set_contract_input(contract, "Alpha", max(0.0, min(1.0, info.alpha)))
-    set_contract_input(contract, "AlphaMode", 3 if info.alpha < 0.999 else 0)
-    set_contract_input(contract, "CullMode", 0 if info.double_sided else 2)
+    constant_x = ox - 620
+    constant_y = oy + 20
+    add_contract_constant(nodes, links, frame, contract, "BaseColor", info.diffuse_color, (constant_x, constant_y))
+    add_contract_constant(nodes, links, frame, contract, "Alpha", max(0.0, min(1.0, info.alpha)), (constant_x, constant_y - 90))
+    add_contract_constant(nodes, links, frame, contract, "AlphaMode", 3 if info.alpha < 0.999 else 0, (constant_x, constant_y - 180))
+    add_contract_constant(nodes, links, frame, contract, "CullMode", 0 if info.double_sided else 2, (constant_x, constant_y - 270))
 
     if target_family == "lilToon":
-        set_contract_input(contract, "UseShadow", 1.0)
-        set_contract_input(contract, "ShadowColor", info.ambient_color)
+        add_contract_constant(nodes, links, frame, contract, "UseShadow", 1.0, (constant_x, constant_y - 360))
+        add_contract_constant(nodes, links, frame, contract, "ShadowColor", info.ambient_color, (constant_x, constant_y - 450))
     else:
-        set_contract_input(contract, "Metallic", 0.0)
-        set_contract_input(contract, "Roughness", 0.5)
+        add_contract_constant(nodes, links, frame, contract, "Metallic", 0.0, (constant_x, constant_y - 360))
+        add_contract_constant(nodes, links, frame, contract, "Roughness", 0.5, (constant_x, constant_y - 450))
 
     if info.base_image is not None:
         image_node = make_image_node(nodes, info.base_image, (ox - 620, oy + 120), "MMD Base Tex")
@@ -265,6 +267,57 @@ def build_contract_node_cluster(material, group, info, target_family, activate_o
         toon_node = make_image_node(nodes, info.toon_image, (ox - 620, oy - 120), "MMD Toon Tex")
         toon_node.parent = frame
         link_if_possible(links, toon_node, "Color", contract, "ShadowTex")
+
+
+def add_contract_constant(nodes, links, frame, node, input_name, value, location):
+    socket = node.inputs.get(input_name)
+    if socket is None:
+        return
+
+    constant = make_constant_node(nodes, input_name, value, location)
+    if constant is None:
+        set_contract_input(node, input_name, value)
+        return
+
+    constant.parent = frame
+    constant["HoGLTFGenerated"] = "MMDMaterial"
+    constant["HoGLTFConstantFor"] = input_name
+    if link_if_possible(links, constant, constant.outputs[0].name, node, input_name):
+        return
+
+    nodes.remove(constant)
+    set_contract_input(node, input_name, value)
+
+
+def make_constant_node(nodes, input_name, value, location):
+    if is_color_value(value):
+        node = nodes.new("ShaderNodeRGB")
+        node.outputs["Color"].default_value = color4_value(value)
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        node = nodes.new("ShaderNodeValue")
+        node.outputs["Value"].default_value = float(value)
+    else:
+        return None
+
+    node.name = unique_node_name(nodes, f"MMD_{input_name}_Value")
+    node.label = f"MMD {input_name}"
+    node.location = location
+    return node
+
+
+def is_color_value(value):
+    return (
+        isinstance(value, (tuple, list))
+        and len(value) in {3, 4}
+        and all(isinstance(component, (int, float)) and not isinstance(component, bool) for component in value)
+    )
+
+
+def color4_value(value):
+    color = tuple(float(component) for component in value)
+    if len(color) == 3:
+        return color + (1.0,)
+    return color[:4]
 
 
 def set_contract_input(node, input_name, value):
@@ -284,7 +337,12 @@ def make_image_node(nodes, image, location, label):
 
 def link_if_possible(links, from_node, from_socket, to_node, to_socket):
     if from_socket in from_node.outputs and to_socket in to_node.inputs:
-        links.new(from_node.outputs[from_socket], to_node.inputs[to_socket])
+        try:
+            links.new(from_node.outputs[from_socket], to_node.inputs[to_socket])
+            return True
+        except (RuntimeError, TypeError):
+            return False
+    return False
 
 
 def build_contract_json(info, target_family):
