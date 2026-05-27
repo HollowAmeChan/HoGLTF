@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import array
 import json
 from dataclasses import dataclass
 
 import bpy
 
 from . import asset_registry
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 
 MMD_SHADER_GROUP_HINTS = {"MMDShaderDev", "MMDShader"}
@@ -14,6 +20,16 @@ CONTRACT_GROUPS = {
     "lilPBR": "HoLilPBR",
 }
 REQUIRED_CONTRACT_INPUTS = {"_BaseTexAlpha"}
+ALPHA_OPAQUE_THRESHOLD = 0.999
+ALPHA_ZERO_THRESHOLD = 0.001
+IMAGE_ALPHA_SAMPLE_LIMIT = 65536
+ALPHA_MODE_NAMES = {
+    0: "Opaque",
+    1: "Cutout",
+    2: "Cutout",
+    3: "Transparent",
+}
+_IMAGE_ALPHA_CACHE = {}
 
 
 @dataclass
@@ -26,6 +42,8 @@ class MMDMaterialInfo:
     diffuse_color: tuple[float, float, float, float]
     ambient_color: tuple[float, float, float, float]
     alpha: float
+    alpha_mode: int
+    alpha_mode_reason: str
     double_sided: bool
 
 
@@ -87,16 +105,22 @@ def inspect_mmd_material(material):
 
     base_image = find_linked_image(shader_node, "Base Tex")
     base_alpha_image = find_linked_image(shader_node, "Base Alpha") or base_image
+    toon_image = find_linked_image(shader_node, "Toon Tex")
+    toon_alpha_image = find_linked_image(shader_node, "Toon Alpha") or toon_image
+    alpha = float_input(shader_node, "Alpha", 1.0)
+    alpha_mode, alpha_mode_reason = infer_alpha_mode(alpha, (base_alpha_image, toon_alpha_image))
 
     return MMDMaterialInfo(
         material=material,
         shader_node=shader_node,
         base_image=base_image,
         base_alpha_image=base_alpha_image,
-        toon_image=find_linked_image(shader_node, "Toon Tex"),
+        toon_image=toon_image,
         diffuse_color=color_input(shader_node, "Diffuse Color", (1, 1, 1, 1)),
         ambient_color=color_input(shader_node, "Ambient Color", (0.82, 0.76, 0.85, 1)),
-        alpha=float_input(shader_node, "Alpha", 1.0),
+        alpha=alpha,
+        alpha_mode=alpha_mode,
+        alpha_mode_reason=alpha_mode_reason,
         double_sided=bool(round(float_input(shader_node, "Double Sided", 1.0))),
     )
 
@@ -148,6 +172,130 @@ def float_input(node, input_name, fallback):
         return float(socket.default_value)
     except TypeError:
         return fallback
+
+
+def infer_alpha_mode(material_alpha, alpha_images):
+    if material_alpha < ALPHA_OPAQUE_THRESHOLD:
+        return 1, "materialAlphaAsCutout"
+
+    for image in unique_images(alpha_images):
+        alpha_info = image_alpha_info(image)
+        if alpha_info["state"] == "opaque":
+            continue
+        if alpha_info["state"] == "nonOpaque":
+            if alpha_info["soft"]:
+                return 1, "textureSoftAlphaAsCutout"
+            return 1, "textureCutoutAlpha"
+        if alpha_info["state"] == "unknownAlpha":
+            return 1, "textureAlphaUnknownAsCutout"
+
+    return 0, "opaque"
+
+
+def unique_images(images):
+    seen = set()
+    result = []
+    for image in images:
+        if image is None:
+            continue
+        key = id(image)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(image)
+    return result
+
+
+def image_alpha_info(image):
+    key = image_alpha_cache_key(image)
+    cached = _IMAGE_ALPHA_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    info = scan_image_alpha(image)
+    _IMAGE_ALPHA_CACHE[key] = info
+    return info
+
+
+def image_alpha_cache_key(image):
+    size = tuple(getattr(image, "size", (0, 0)))
+    return (
+        getattr(image, "name", ""),
+        getattr(image, "filepath", ""),
+        size,
+        getattr(image, "channels", 0),
+    )
+
+
+def scan_image_alpha(image):
+    try:
+        channels = int(getattr(image, "channels", 0))
+    except (TypeError, ValueError):
+        channels = 0
+    if channels < 4:
+        return {"state": "opaque", "min": 1.0, "max": 1.0, "soft": False}
+
+    try:
+        pixels = image.pixels
+        pixel_count = len(pixels) // channels
+    except (RuntimeError, TypeError, ValueError):
+        return {"state": "unknownAlpha", "min": None, "max": None, "soft": False}
+
+    if pixel_count <= 0:
+        return {"state": "unknownAlpha", "min": None, "max": None, "soft": False}
+
+    try:
+        min_alpha, max_alpha, soft = scan_image_alpha_fast(pixels, pixel_count, channels)
+    except (RuntimeError, TypeError, ValueError, MemoryError):
+        return {"state": "unknownAlpha", "min": None, "max": None, "soft": False}
+
+    state = "opaque" if min_alpha >= ALPHA_OPAQUE_THRESHOLD else "nonOpaque"
+    return {"state": state, "min": min_alpha, "max": max_alpha, "soft": soft}
+
+
+def scan_image_alpha_fast(pixels, pixel_count, channels):
+    total_values = pixel_count * channels
+
+    if np is not None:
+        try:
+            values = np.empty(total_values, dtype=np.float32)
+            pixels.foreach_get(values)
+            alpha = values[3::channels]
+            min_alpha = float(alpha.min())
+            max_alpha = float(alpha.max())
+            soft = bool(np.any((alpha > ALPHA_ZERO_THRESHOLD) & (alpha < ALPHA_OPAQUE_THRESHOLD)))
+            return min_alpha, max_alpha, soft
+        except (RuntimeError, TypeError, ValueError, MemoryError):
+            pass
+
+    try:
+        values = array.array("f", [0.0]) * total_values
+        pixels.foreach_get(values)
+        alpha_values = values[3::channels]
+        min_alpha = min(alpha_values, default=1.0)
+        max_alpha = max(alpha_values, default=0.0)
+        soft = any(ALPHA_ZERO_THRESHOLD < alpha < ALPHA_OPAQUE_THRESHOLD for alpha in alpha_values)
+        return float(min_alpha), float(max_alpha), bool(soft)
+    except MemoryError:
+        return scan_image_alpha_sampled(pixels, pixel_count, channels)
+
+
+def scan_image_alpha_sampled(pixels, pixel_count, channels):
+    step = max(1, pixel_count // IMAGE_ALPHA_SAMPLE_LIMIT)
+    min_alpha = 1.0
+    max_alpha = 0.0
+    soft = False
+
+    for pixel_index in range(0, pixel_count, step):
+        alpha = float(pixels[pixel_index * channels + 3])
+        min_alpha = min(min_alpha, alpha)
+        max_alpha = max(max_alpha, alpha)
+        if ALPHA_ZERO_THRESHOLD < alpha < ALPHA_OPAQUE_THRESHOLD:
+            soft = True
+        if min_alpha < ALPHA_OPAQUE_THRESHOLD and soft:
+            break
+
+    return min_alpha, max_alpha, soft
 
 
 def convert_mmd_material_copy(info, target_family="lilToon"):
@@ -278,7 +426,7 @@ def build_contract_node_cluster(material, group, info, target_family, activate_o
     constant_y = oy + 20
     add_contract_constant(nodes, links, frame, contract, "BaseColor", info.diffuse_color, (constant_x, constant_y))
     add_contract_constant(nodes, links, frame, contract, "Alpha", max(0.0, min(1.0, info.alpha)), (constant_x, constant_y - 90))
-    add_contract_constant(nodes, links, frame, contract, "AlphaMode", 3 if info.alpha < 0.999 else 0, (constant_x, constant_y - 180))
+    add_contract_constant(nodes, links, frame, contract, "AlphaMode", info.alpha_mode, (constant_x, constant_y - 180))
     add_contract_constant(nodes, links, frame, contract, "CullMode", 0 if info.double_sided else 2, (constant_x, constant_y - 270))
 
     if target_family == "lilToon":
@@ -387,12 +535,13 @@ def link_if_possible(links, from_node, from_socket, to_node, to_socket):
 
 def build_contract_json(info, target_family):
     variant = "standard" if target_family == "lilToon" else "pbr"
+    rendering_mode = ALPHA_MODE_NAMES.get(info.alpha_mode, str(info.alpha_mode))
     return json.dumps(
         {
             "target": {
                 "shaderFamily": target_family,
                 "shaderVariant": variant,
-                "renderingMode": "Transparent" if info.alpha < 0.999 else "Opaque",
+                "renderingMode": rendering_mode,
             },
             "extras": {
                 "mmd": {
@@ -402,6 +551,8 @@ def build_contract_json(info, target_family):
                     "toonTexture": image_name(info.toon_image),
                     "doubleSided": info.double_sided,
                     "alpha": info.alpha,
+                    "alphaMode": info.alpha_mode,
+                    "alphaModeReason": info.alpha_mode_reason,
                     "alphaSources": ["materialAlpha", "baseTextureAlpha", "toonTextureAlpha"],
                 }
             },

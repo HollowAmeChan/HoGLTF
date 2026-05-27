@@ -45,12 +45,12 @@ Importer 推荐的目标选择：
    - `UseGem > 0`：选 `Gem`。
    - `UseRefraction > 0` 或 `OpenPBRTransmissionWeight > 0`：选 `Refraction`，不要降级成普通 Transparent。
    - `UseFur > 0`：选 `Fur` / `FurCutout` / `FurTwoPass`。
-   - `AlphaMode = Transparent`：选 `Transparent`、`OnePassTransparent` 或 `TwoPassTransparent`。
+   - `AlphaMode = Transparent`：只作为透明意图 tag 保留；当前 UnityGLTF lilToon 自动导入不强制选择 Transparent shader。
    - `AlphaMode = Cutout` 或 `Dither`：选 `Cutout`。
    - 其他：选 `Opaque`。
 3. 再叠加 `UseOutline`：需要描边时选对应 `_o` shader；不是只设置 `_UseOutline`。
 4. `UseLite`、`UseTessellation`、`UseMulti` 应作为明确 opt-in，不要由 MMD 自动推断。
-5. MMD 场景首轮默认目标应是 `Standard Opaque/Cutout/Transparent + optional Outline`，不要默认走 Lite、Multi、Fur、Gem、Refraction。
+5. MMD 自动转换默认目标应是 `Standard Opaque/Cutout + optional Outline`，不要自动走 Transparent、Lite、Multi、Fur、Gem、Refraction。需要半透明时由 Unity 侧手动切换。
 
 建议在 HoGLTF 扩展 metadata 里写：
 
@@ -91,7 +91,7 @@ Importer 识别优先级建议：
 1. 如果节点组名是 `HoLilToon*` 专用组，优先采用节点组名决定目标变体。
 2. 如果使用 `HoLilToonMax` 或未知兼容组，再读取 `TargetShaderVariant`。
 3. 如果节点组名和 `TargetShaderVariant` 冲突，记录 warning；默认信任节点组名，因为 Blender 作者选择了更明确的接口。
-4. `AlphaMode`、`TransparentMode`、`UseOutline` 再叠加决定 Opaque / Cutout / Transparent / OnePass / TwoPass / Outline shader。
+4. `AlphaMode`、`TransparentMode`、`UseOutline` 再叠加决定自动导入落点；当前 UnityGLTF lilToon 自动导入只自动落到 Opaque / Cutout / Outline，Transparent 只保留 tag。
 5. `HoLilToonStandard` 是当前 MMD 预设基准的默认落点；`HoLilToonMax` 用于迁移未知材质、回归测试和接口兼容。
 
 ## 共享渲染 Socket
@@ -107,18 +107,18 @@ Importer 识别优先级建议：
 | `CullMode` | Enum | 0 | 2 | 2 | S | `_Cull` | Unity 值：`0 Off`、`1 Front`、`2 Back`。MMD 双面映射到 `0`。 |
 | `ZWriteOverride` | Float | -1 | 1 | -1 | A | `_ZWrite` | `-1` 表示由 importer 根据 alpha mode 自动选择；`0/1` 表示强制指定。 |
 | `AlphaToMaskOverride` | Float | -1 | 1 | -1 | A | `_AlphaToMask` | `-1` 表示由 importer 自动选择；Cutout 通常为 `1`，Transparent 为 `0`。 |
-| `RenderQueueOffset` | Float | -100 | 100 | 0 | B | material renderQueue | 可选，用于处理透明排序和特殊层级。 |
+| `RenderQueueOffset` | Float | -100 | 100 | 0 | B | metadata only | 可选排序意图；当前 UnityGLTF lilToon 自动导入不写 `material.renderQueue`。 |
 | `TargetShaderVariant` | Enum | 0 | 9 | 0 | S | shader selection metadata | `0 Auto`、`1 Standard`、`2 Lite`、`3 Tessellation`、`4 Refraction`、`5 Gem`、`6 Fur`、`7 FurOnly`、`8 Multi`、`9 FakeShadow`。 |
-| `TransparentMode` | Enum | 0 | 2 | 0 | A | shader selection metadata / `_TransparentMode` | `0 Normal`、`1 OnePass`、`2 TwoPass`；仅 Transparent/Fur/Multi 路径消费。 |
+| `TransparentMode` | Enum | 0 | 2 | 0 | A | shader selection metadata / `_TransparentMode` | `0 Normal`、`1 OnePass`、`2 TwoPass`；仅手动 Transparent/Fur/Multi 路径消费。 |
 
 推荐 alpha 判定：
 
 | 来源条件 | AlphaMode | Unity 行为 |
 | --- | --- | --- |
 | 没有 alpha 贴图且 `Alpha >= 0.999` | `0 Opaque` | `_ZWrite = 1`，blend One/Zero。 |
-| alpha 基本是二值 | `1 Cutout` | 设置 `_Cutoff`、`_AlphaToMask = 1`。 |
-| 软 alpha / 类玻璃颜色 alpha | `3 Transparent` | lilPBR 设置 `_ZWrite = 0`；lilToon 选择 transparent shader variant。 |
-| 软 alpha 但不能接受透明排序问题 | `2 Dither` | 使用 Cutout queue，并启用 dither keyword/mode。 |
+| MMD 自动转换阶段确认材质或贴图需要 alpha | `1 Cutout` | 设置 `_Cutoff`、`_AlphaToMask = 1`。 |
+| 软 alpha / 类玻璃颜色 alpha | `3 Transparent` | 作为 `HO_AlphaMode=3` 提示保留；当前 UnityGLTF lilToon 自动导入不切 transparent shader，需要 Unity 侧手动套 lilToon 预设。 |
+| 软 alpha 但不能接受透明排序问题 | `2 Dither` | 自动导入按 Cutout 处理，并启用 dither keyword/mode。 |
 
 ## 成组参数语义
 
@@ -322,8 +322,8 @@ lilToon 的很多输入不是单个 property 独立生效，而是“贴图 + �
 - `MMD Double Sided = true` -> `CullMode = 0`。
 - `MMD Double Sided = false` -> `CullMode = 2`。
 - 如果贴图 alpha 扫描结果全为 `1.0`，导出 `AlphaMode = 0`。
-- 如果 MMD alpha 或贴图 alpha 是二值，导出 `AlphaMode = 1`。
-- 如果 MMD alpha 是软透明，导出 `AlphaMode = 3`；lilToon 应选择 transparent shader variant，lilPBR 应设置 `_RenderingMode = 3`。
+- MMD 自动转换只导出 `AlphaMode = 0 Opaque` 或 `AlphaMode = 1 Cutout`。
+- 如果 MMD 材质 `Alpha < 0.999`、贴图 alpha 非全 `1.0`，或贴图 alpha 状态无法可靠扫描，当前 MMD 转换都保守导出 `AlphaMode = 1`。需要半透明时由 Unity 侧手动切换为 Transparent。
 - MMD specular 初期可以映射到 `Rim`，也可以保留为 `extras.mmd.specular`；不要强行塞进 PBR metallic。
 - MMD 节点组内部未消费的 UV1 socket 应保留为 inactive metadata，不应导出为硬依赖。
 

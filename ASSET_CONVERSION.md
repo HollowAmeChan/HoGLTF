@@ -29,8 +29,9 @@ View3D -> Sidebar -> HoGLTF -> HoGLTF Asset Conversion
 | `Diffuse Color` | `BaseColor` |
 | `Alpha` | `Alpha` |
 | `Base Alpha` / `Base Tex.Alpha` | `_BaseTexAlpha`，仅 Blender 预览，`export=false` |
-| `Alpha < 0.999` | `AlphaMode = Transparent` |
-| `Alpha >= 0.999` | `AlphaMode = Opaque` |
+| `Alpha < 0.999` | `AlphaMode = Cutout` |
+| `Alpha >= 0.999` 且贴图 alpha 全不透明 | `AlphaMode = Opaque` |
+| `Alpha >= 0.999` 且贴图 alpha 存在非不透明像素 | `AlphaMode = Cutout` |
 | `Double Sided = true` | `CullMode = 0` |
 | `Double Sided = false` | `CullMode = 2` |
 | `Base Tex` 链接的 Image Texture | `BaseTex` |
@@ -51,6 +52,7 @@ HoLilToonStandard
 | `Diffuse Color` | `BaseColor` |
 | `Alpha` | `Alpha` |
 | `Base Alpha` / `Base Tex.Alpha` | `_BaseTexAlpha`，仅 Blender 预览，`export=false` |
+| `Alpha >= 0.999` 且贴图 alpha 存在非不透明像素 | `AlphaMode = Cutout` |
 | `Double Sided` | `CullMode` |
 | `Base Tex` 链接的 Image Texture | `BaseTex` |
 | `Toon Tex` | 不接入 PBR shader，保存在 `extras.mmd.toonTexture` |
@@ -96,7 +98,7 @@ print(result["converted"], result["skipped"])
 
 - 这是资产转换模块，不属于 glTF 导出模块。导出只负责读取转换后的契约。
 - 当前不直接生成 Unity 材质，不直接写 lilToon/lilPBR shader property。
-- 当前不扫描贴图 alpha 像素；透明判断只使用 MMD 材质 `Alpha` 标量。贴图 alpha 扫描应作为后续增强接入。
+- 转换会扫描 `Base Alpha` / `Toon Alpha` 关联贴图的 alpha 像素。扫描优先使用 `image.pixels.foreach_get` 批量读取，并在 Blender 可用时用 numpy 计算 alpha 通道 min/max；超大贴图内存不足时退回采样。自动转换只导出 `Opaque` 或 `Cutout`：材质 `Alpha < 0.999`、贴图 alpha 非全 1、或贴图 alpha 状态无法可靠扫描时，都保守导出 `Cutout`。`Transparent` 不由 MMD 自动转换产生，需要 Unity 侧手动调整。
 - 当前不替换材质 slot。默认在原材质内部追加节点并激活新的 Material Output。
 - 当前保留 `bpy.ops.ho.*` IR operator 历史 id，不影响本模块的 `bpy.ops.hogltf.convert_mmd_materials`。
 
