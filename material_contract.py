@@ -374,6 +374,8 @@ def read_hogltf_node_inputs(blender_material):
 
         socket_value = _socket_effective_value(socket)
         socket_metadata = _socket_metadata(socket, group_tree)
+        if _is_export_disabled(socket_metadata):
+            continue
         socket_description = _socket_description(socket, group_tree)
         inputs[socket.name] = socket_value
         sockets.append({
@@ -591,6 +593,13 @@ def _socket_metadata(socket, group_tree):
             continue
         metadata[key] = value.strip()
     return metadata
+
+
+def _is_export_disabled(metadata):
+    value = metadata.get("export")
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in {"0", "false", "no", "off"}
 
 
 def _socket_attr(socket, group_tree, attr_name):

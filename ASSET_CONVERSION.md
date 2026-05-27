@@ -28,6 +28,7 @@ View3D -> Sidebar -> HoGLTF -> HoGLTF Asset Conversion
 | --- | --- |
 | `Diffuse Color` | `BaseColor` |
 | `Alpha` | `Alpha` |
+| `Base Alpha` / `Base Tex.Alpha` | `_BaseTexAlpha`，仅 Blender 预览，`export=false` |
 | `Alpha < 0.999` | `AlphaMode = Transparent` |
 | `Alpha >= 0.999` | `AlphaMode = Opaque` |
 | `Double Sided = true` | `CullMode = 0` |
@@ -49,6 +50,7 @@ HoLilToonStandard
 | --- | --- |
 | `Diffuse Color` | `BaseColor` |
 | `Alpha` | `Alpha` |
+| `Base Alpha` / `Base Tex.Alpha` | `_BaseTexAlpha`，仅 Blender 预览，`export=false` |
 | `Double Sided` | `CullMode` |
 | `Base Tex` 链接的 Image Texture | `BaseTex` |
 | `Toon Tex` | 不接入 PBR shader，保存在 `extras.mmd.toonTexture` |
@@ -68,6 +70,7 @@ HoLilPBR
 - frame 内包含契约节点组、复用同一 Image datablock 的贴图节点、新的 Material Output。
 - 新 Material Output 默认设为 `is_active_output = True`。
 - 原来的 MMD 节点、旧 Material Output、材质 slot 都不删除、不替换。
+- 契约节点组从 `assets/published/lil_material_contracts.blend` 直接 append，不依赖 Blender Asset Browser 的同名资产查找。若当前 `.blend` 已存在缺少当前必需接口的旧同名节点组，旧组会改名为 `*_Legacy`，新转换使用发布目录里的正式节点组。
 
 可选方式：
 

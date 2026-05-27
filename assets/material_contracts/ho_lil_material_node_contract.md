@@ -102,6 +102,7 @@ Importer 识别优先级建议：
 | --- | --- | ---: | ---: | ---: | --- | --- | --- |
 | `AlphaMode` | Enum | 0 | 3 | 0 | S | shader variant / `_RenderingMode` | `0 Opaque`、`1 Cutout`、`2 Dither`、`3 Transparent`。 |
 | `Alpha` | Float | 0 | 1 | 1 | S | `_Color.a` | 乘到基础贴图 alpha 上。 |
+| `_BaseTexAlpha` | Float | 0 | 1 | 1 | internal | Blender preview only | 来自 `BaseTex.a` 的 Blender 专用桥接输入，metadata 标记 `export=false`，不导出为 Unity 属性。 |
 | `AlphaCutoff` | Float | 0 | 1 | 0.5 | S | `_Cutoff` | Cutout / Dither 使用。 |
 | `CullMode` | Enum | 0 | 2 | 2 | S | `_Cull` | Unity 值：`0 Off`、`1 Front`、`2 Back`。MMD 双面映射到 `0`。 |
 | `ZWriteOverride` | Float | -1 | 1 | -1 | A | `_ZWrite` | `-1` 表示由 importer 根据 alpha mode 自动选择；`0/1` 表示强制指定。 |
@@ -128,6 +129,7 @@ lilToon 的很多输入不是单个 property 独立生效，而是“贴图 + �
 | 组 | Texture socket | Factor socket | Unity 目标 | 组合语义 |
 | --- | --- | --- | --- | --- |
 | `mainColor` | `BaseTex` | `BaseColor` | `_MainTex` + `_Color` | 主色应按 `BaseTex * BaseColor` 理解。正式资产里的 Blender 预览也按这个规则接到 Principled BSDF。 |
+| `blenderPreview` | `BaseTex.a` | `Alpha` | 不导出 | 仅用于 Blender 预览：`PreviewAlpha = _BaseTexAlpha * Alpha`。Unity 仍从 RGBA `BaseTex` 和 `_Color.a` 重建最终 alpha。 |
 | `shadow` | `ShadowTex` | `ShadowColor` / `ShadowStrength` | `_ShadowColorTex` + `_ShadowColor` + `_ShadowStrength` | MMD toon texture 放进 `ShadowTex`，不要烘进 `BaseTex`。 |
 | `rim` | `RimTex` | `RimColor` | `_RimColorTex` + `_RimColor` | 边缘光颜色贴图与颜色因子相乘。 |
 | `emission` | `EmissionTex` | `EmissionColor` / `EmissionBlend` | `_EmissionMap` + `_EmissionColor` + `_EmissionBlend` | emission strength 现阶段可烘入 HDR `EmissionColor`，但仍保留 blend 因子。 |
@@ -315,6 +317,7 @@ lilToon 的很多输入不是单个 property 独立生效，而是“贴图 + �
 对于当前 MMD 预设节点场景：
 
 - `MMD Diffuse/Base Tex` -> `BaseTex`、`BaseColor`。
+- `MMD Base Alpha` -> `_BaseTexAlpha`，只服务 Blender 预览和分析；Unity 侧仍使用 `BaseTex.a * Alpha`。
 - `MMD Toon Tex` -> `HoLilToon.ShadowTex`。
 - `MMD Double Sided = true` -> `CullMode = 0`。
 - `MMD Double Sided = false` -> `CullMode = 2`。

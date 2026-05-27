@@ -6,7 +6,7 @@
 
 | 路径 | 职责 | 是否稳定 |
 | --- | --- | --- |
-| `lil_material_contracts.blend` | 正式内置资产库文件，插件和 Blender Asset Browser 消费它。 | 稳定 |
+| `../published/lil_material_contracts.blend` | 正式发布资产，插件运行时加载它，Blender Asset Browser 只扫描 `assets/published/`。 | 稳定 |
 | `ho_lil_material_node_contract.md` | 契约文档，记录节点组、socket、变体和映射规则。 | 稳定 |
 | `create_holil_material_blend.py` | 契约资产重建脚本，只作为开发/迁移工具。 | 工具 |
 | `generated/` | 默认生成草稿输出目录，用于调试和验收。 | 临时 |
@@ -28,7 +28,7 @@
 assets/material_contracts/generated/lil_material_contracts.generated.blend
 ```
 
-这个命令不覆盖正式 `lil_material_contracts.blend`。
+这个命令不覆盖正式发布资产。
 
 ## 验收检查
 
@@ -37,7 +37,7 @@ assets/material_contracts/generated/lil_material_contracts.generated.blend
 1. 生成日志里的节点组数量和 socket 数量符合预期。
 2. 打开 generated `.blend`，确认 `HoLilToon*`、`HoLilPBR` 节点组可作为资产看到。
 3. 检查节点组 `TargetShaderVariant` 默认值是否正确。
-4. 确认 `asset_data` 标记存在，材质样例和节点组都能被 Asset Browser 识别。
+4. 确认 `asset_data` 标记只存在于节点组；材质样例不作为 Asset Browser 资产。
 5. 如涉及 MMD 映射，确认 `adapters/mmd` 下的扫描报告或测试数据仍能解释这次变更。
 
 可用后台快速检查资产标记：
@@ -48,16 +48,16 @@ assets/material_contracts/generated/lil_material_contracts.generated.blend
 
 ## 发布流程
 
-只有在 generated 文件验收通过后，才允许发布到正式资产：
+只有在 generated 文件验收通过后，才允许手动覆盖正式发布资产。生成脚本不再提供自动 `--publish`，避免误把未验收草稿写进正式资产库。
 
 ```powershell
-& 'D:\Blender\blender-4.5.8-windows-x64\blender.exe' --factory-startup --background --python 'C:\Users\hhh12\AppData\Roaming\Blender Foundation\Blender\4.5\scripts\addons\HoGLTF\assets\material_contracts\create_holil_material_blend.py' -- --publish
+Copy-Item -LiteralPath 'C:\Users\hhh12\AppData\Roaming\Blender Foundation\Blender\4.5\scripts\addons\HoGLTF\assets\material_contracts\generated\lil_material_contracts.generated.blend' -Destination 'C:\Users\hhh12\AppData\Roaming\Blender Foundation\Blender\4.5\scripts\addons\HoGLTF\assets\published\lil_material_contracts.blend' -Force
 ```
 
-`--publish` 是显式发布动作，会覆盖：
+手动发布会覆盖：
 
 ```text
-assets/material_contracts/lil_material_contracts.blend
+assets/published/lil_material_contracts.blend
 ```
 
 如果需要写到自定义位置，可以使用：
@@ -87,7 +87,7 @@ HoGLTF 插件提供手动资产库注册按钮：
 注册路径是：
 
 ```text
-HoGLTF/assets
+HoGLTF/assets/published
 ```
 
-注册逻辑会按路径防重复；重复点击不会新增第二个资产库条目。
+注册逻辑会按路径防重复；重复点击不会新增第二个资产库条目。插件启动和手动注册时会清理旧的 `HoGLTF/assets` 宽路径和 `HoGLTF/assets/material_contracts` 开发目录。不要注册这两个目录，否则 `generated/`、`_blender_backups/` 和开发文件会一起被 Asset Browser 扫到。

@@ -13,6 +13,7 @@ CONTRACT_GROUPS = {
     "lilToon": "HoLilToonStandard",
     "lilPBR": "HoLilPBR",
 }
+REQUIRED_CONTRACT_INPUTS = {"_BaseTexAlpha"}
 
 
 @dataclass
@@ -20,6 +21,7 @@ class MMDMaterialInfo:
     material: bpy.types.Material
     shader_node: bpy.types.Node
     base_image: bpy.types.Image | None
+    base_alpha_image: bpy.types.Image | None
     toon_image: bpy.types.Image | None
     diffuse_color: tuple[float, float, float, float]
     ambient_color: tuple[float, float, float, float]
@@ -83,10 +85,14 @@ def inspect_mmd_material(material):
     if shader_node is None:
         return None
 
+    base_image = find_linked_image(shader_node, "Base Tex")
+    base_alpha_image = find_linked_image(shader_node, "Base Alpha") or base_image
+
     return MMDMaterialInfo(
         material=material,
         shader_node=shader_node,
-        base_image=find_linked_image(shader_node, "Base Tex"),
+        base_image=base_image,
+        base_alpha_image=base_alpha_image,
         toon_image=find_linked_image(shader_node, "Toon Tex"),
         diffuse_color=color_input(shader_node, "Diffuse Color", (1, 1, 1, 1)),
         ambient_color=color_input(shader_node, "Ambient Color", (0.82, 0.76, 0.85, 1)),
@@ -186,8 +192,10 @@ def append_mmd_contract_to_material(info, target_family="lilToon", activate_outp
 
 def ensure_contract_group(group_name):
     group = bpy.data.node_groups.get(group_name)
-    if group is not None:
+    if group is not None and contract_group_has_inputs(group, REQUIRED_CONTRACT_INPUTS):
         return group
+    if group is not None:
+        group.name = unique_node_group_name(f"{group_name}_Legacy")
 
     blend_path = asset_registry.LIL_MATERIAL_CONTRACT_BLEND
     if not blend_path.exists():
@@ -201,7 +209,29 @@ def ensure_contract_group(group_name):
     group = bpy.data.node_groups.get(group_name)
     if group is None:
         raise RuntimeError(f"Failed to load node group '{group_name}'")
+    if not contract_group_has_inputs(group, REQUIRED_CONTRACT_INPUTS):
+        missing = ", ".join(sorted(REQUIRED_CONTRACT_INPUTS))
+        raise RuntimeError(f"Node group '{group_name}' is missing required contract input(s): {missing}")
     return group
+
+
+def contract_group_has_inputs(group, input_names):
+    interface = getattr(group, "interface", None)
+    if interface is None:
+        return False
+
+    found = set()
+    for item in getattr(interface, "items_tree", []):
+        if getattr(item, "item_type", "") != "SOCKET":
+            continue
+        if getattr(item, "in_out", "") != "INPUT":
+            continue
+        name = getattr(item, "name", "")
+        identifier = getattr(item, "identifier", name)
+        if name in input_names or identifier in input_names:
+            found.add(name)
+            found.add(identifier)
+    return input_names.issubset(found)
 
 
 def build_contract_node_tree(material, group, info, target_family):
@@ -258,10 +288,20 @@ def build_contract_node_cluster(material, group, info, target_family, activate_o
         add_contract_constant(nodes, links, frame, contract, "Metallic", 0.0, (constant_x, constant_y - 360))
         add_contract_constant(nodes, links, frame, contract, "Roughness", 0.5, (constant_x, constant_y - 450))
 
+    base_image_node = None
     if info.base_image is not None:
         image_node = make_image_node(nodes, info.base_image, (ox - 620, oy + 120), "MMD Base Tex")
         image_node.parent = frame
         link_if_possible(links, image_node, "Color", contract, "BaseTex")
+        base_image_node = image_node
+
+    if info.base_alpha_image is not None:
+        if base_image_node is not None and info.base_alpha_image == info.base_image:
+            link_if_possible(links, base_image_node, "Alpha", contract, "_BaseTexAlpha")
+        else:
+            alpha_node = make_image_node(nodes, info.base_alpha_image, (ox - 620, oy + 260), "MMD Base Alpha")
+            alpha_node.parent = frame
+            link_if_possible(links, alpha_node, "Alpha", contract, "_BaseTexAlpha")
 
     if target_family == "lilToon" and info.toon_image is not None:
         toon_node = make_image_node(nodes, info.toon_image, (ox - 620, oy - 120), "MMD Toon Tex")
@@ -397,6 +437,15 @@ def unique_material_name(base_name):
         return base_name
     index = 1
     while f"{base_name}.{index:03d}" in bpy.data.materials:
+        index += 1
+    return f"{base_name}.{index:03d}"
+
+
+def unique_node_group_name(base_name):
+    if base_name not in bpy.data.node_groups:
+        return base_name
+    index = 1
+    while f"{base_name}.{index:03d}" in bpy.data.node_groups:
         index += 1
     return f"{base_name}.{index:03d}"
 

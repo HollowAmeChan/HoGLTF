@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ASSET_DIR = Path(__file__).resolve().parent
-CANONICAL_PATH = ASSET_DIR / "lil_material_contracts.blend"
+PUBLISHED_PATH = ASSET_DIR.parent / "published" / "lil_material_contracts.blend"
 GENERATED_DIR = ASSET_DIR / "generated"
 GENERATED_PATH = GENERATED_DIR / "lil_material_contracts.generated.blend"
 ASSET_AUTHOR = "HoGLTF"
@@ -14,6 +14,7 @@ SOCKET_SEMANTICS = {
     "BaseTex": "group=mainColor; role=texture; blend=BaseTex*BaseColor",
     "BaseTexUV": "group=mainColor; role=uv",
     "Alpha": "group=alpha; role=scalarFactor",
+    "_BaseTexAlpha": "group=blenderPreview; role=baseTextureAlpha; source=BaseTex.a; blend=_BaseTexAlpha*Alpha; export=false; hidden=true",
     "AlphaCutoff": "group=alpha; role=cutoff",
     "ShadowColor": "group=shadow; role=colorFactor; blend=ShadowTex*ShadowColor",
     "ShadowTex": "group=shadow; role=texture; blend=ShadowTex*ShadowColor",
@@ -68,6 +69,8 @@ def clear_scene():
 def set_iface_defaults(socket, default=None, minimum=None, maximum=None, description=""):
     if hasattr(socket, "description"):
         socket.description = description
+    if "hidden=true" in description and hasattr(socket, "hide_value"):
+        socket.hide_value = True
     if default is not None and hasattr(socket, "default_value"):
         socket.default_value = default
     if minimum is not None and hasattr(socket, "min_value"):
@@ -150,14 +153,15 @@ def make_group(name, sockets, group_color, variant=""):
         links.new(group_input.outputs["Roughness"], bsdf.inputs["Roughness"])
     if "Metallic" in group_input.outputs and "Metallic" in bsdf.inputs:
         links.new(group_input.outputs["Metallic"], bsdf.inputs["Metallic"])
-    if "Alpha" in group_input.outputs and "Alpha" in bsdf.inputs:
-        links.new(group_input.outputs["Alpha"], bsdf.inputs["Alpha"])
+    alpha_output = build_alpha_preview(nodes, links, group_input)
+    if alpha_output is not None and "Alpha" in bsdf.inputs:
+        links.new(alpha_output, bsdf.inputs["Alpha"])
     if "Shader" in group_output.inputs and "BSDF" in bsdf.outputs:
         links.new(bsdf.outputs["BSDF"], group_output.inputs["Shader"])
     if base_color_output is not None and "Color" in group_output.inputs:
         links.new(base_color_output, group_output.inputs["Color"])
-    if "Alpha" in group_input.outputs and "Alpha" in group_output.inputs:
-        links.new(group_input.outputs["Alpha"], group_output.inputs["Alpha"])
+    if alpha_output is not None and "Alpha" in group_output.inputs:
+        links.new(alpha_output, group_output.inputs["Alpha"])
 
     mark_asset(group, f"{name} material contract node group")
     return group
@@ -178,6 +182,23 @@ def build_main_color_preview(nodes, links, group_input):
         return group_input.outputs["BaseTex"]
     if has_base_color:
         return group_input.outputs["BaseColor"]
+    return None
+
+
+def build_alpha_preview(nodes, links, group_input):
+    has_alpha = "Alpha" in group_input.outputs
+    has_base_tex_alpha = "_BaseTexAlpha" in group_input.outputs
+    if has_alpha and has_base_tex_alpha:
+        multiply = nodes.new("ShaderNodeMath")
+        multiply.location = (-240, -40)
+        multiply.operation = "MULTIPLY"
+        links.new(group_input.outputs["_BaseTexAlpha"], multiply.inputs[0])
+        links.new(group_input.outputs["Alpha"], multiply.inputs[1])
+        return multiply.outputs["Value"]
+    if has_alpha:
+        return group_input.outputs["Alpha"]
+    if has_base_tex_alpha:
+        return group_input.outputs["_BaseTexAlpha"]
     return None
 
 
@@ -220,6 +241,7 @@ def override_sockets(sockets, overrides):
 SHARED = [
     {"name": "AlphaMode", "type": "Enum", "min": 0, "max": 3, "default": 0, "priority": "S", "target": "shader variant / _RenderingMode"},
     {"name": "Alpha", "type": "Float", "min": 0, "max": 1, "default": 1, "priority": "S", "target": "_Color.a"},
+    {"name": "_BaseTexAlpha", "type": "Float", "min": 0, "max": 1, "default": 1, "priority": "internal", "target": "Blender preview only"},
     {"name": "AlphaCutoff", "type": "Float", "min": 0, "max": 1, "default": 0.5, "priority": "S", "target": "_Cutoff"},
     {"name": "CullMode", "type": "Enum", "min": 0, "max": 2, "default": 2, "priority": "S", "target": "_Cull"},
     {"name": "ZWriteOverride", "type": "Float", "min": -1, "max": 1, "default": -1, "priority": "A", "target": "_ZWrite"},
@@ -517,8 +539,6 @@ def create_material_with_group(name, group, x):
     group_node.location = (-120, 0)
     group_node.label = group.name
     material.node_tree.links.new(group_node.outputs["Shader"], output.inputs["Surface"])
-    mark_asset(material, f"{group.name} material contract sample")
-
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=(x, 0, 0))
     obj = bpy.context.object
     obj.name = name.replace("_Material", "_Cube")
@@ -531,17 +551,18 @@ def parse_args():
     if "--" not in args:
         return {
             "output_path": GENERATED_PATH,
-            "publish": False,
         }
 
     tail = args[args.index("--") + 1:]
-    publish = False
     output_path = None
     index = 0
     while index < len(tail):
         arg = tail[index]
         if arg == "--publish":
-            publish = True
+            raise ValueError(
+                "--publish is disabled. Generate a draft, verify it, then manually copy it to "
+                f"{PUBLISHED_PATH}"
+            )
         elif arg == "--output":
             index += 1
             if index >= len(tail):
@@ -552,11 +573,10 @@ def parse_args():
         index += 1
 
     if output_path is None:
-        output_path = CANONICAL_PATH if publish else GENERATED_PATH
+        output_path = GENERATED_PATH
 
     return {
         "output_path": output_path,
-        "publish": publish,
     }
 
 
@@ -692,10 +712,7 @@ def main():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(output_path))
     print(f"Saved {output_path}")
-    if args["publish"]:
-        print("Published canonical HoGLTF material contract asset.")
-    else:
-        print(f"Generated draft only. Canonical asset remains: {CANONICAL_PATH}")
+    print(f"Generated draft only. Publish manually after verification: {PUBLISHED_PATH}")
     for group in toon_groups:
         print(f"{group.name} sockets: {len(group.interface.items_tree) - 3} inputs")
     print(f"HoLilPBR sockets: {len(SHARED) + len(LILPBR)} inputs")

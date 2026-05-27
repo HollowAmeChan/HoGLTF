@@ -4,8 +4,9 @@ from pathlib import Path
 
 ADDON_ROOT = Path(__file__).resolve().parent
 ASSETS_ROOT = ADDON_ROOT / "assets"
+PUBLISHED_ASSETS_DIR = ASSETS_ROOT / "published"
 MATERIAL_CONTRACTS_DIR = ASSETS_ROOT / "material_contracts"
-LIL_MATERIAL_CONTRACT_BLEND = MATERIAL_CONTRACTS_DIR / "lil_material_contracts.blend"
+LIL_MATERIAL_CONTRACT_BLEND = PUBLISHED_ASSETS_DIR / "lil_material_contracts.blend"
 BUILTIN_ASSET_LIBRARY_NAME = "HoGLTF Builtin Assets"
 
 
@@ -34,6 +35,24 @@ def asset_library_exists(path):
     return False
 
 
+def remove_asset_library(path):
+    try:
+        import bpy
+    except Exception:
+        return False
+
+    path = _norm_path(path)
+    prefs = bpy.context.preferences.filepaths
+    libraries = prefs.asset_libraries
+    removed = False
+    for library in list(libraries):
+        if _norm_path(bpy.path.abspath(library.path)) != path:
+            continue
+        libraries.remove(library)
+        removed = True
+    return removed
+
+
 def register_asset_library(name, path):
     try:
         import bpy
@@ -60,11 +79,13 @@ def register_asset_library(name, path):
 
 
 def ensure_builtin_asset_library():
-    """Register the HoGLTF assets folder as a Blender asset library if possible."""
-    if asset_library_exists(ASSETS_ROOT):
+    """Register only the published HoGLTF assets folder as a Blender asset library."""
+    remove_asset_library(ASSETS_ROOT)
+    remove_asset_library(MATERIAL_CONTRACTS_DIR)
+    if asset_library_exists(PUBLISHED_ASSETS_DIR):
         return True
 
-    ok = register_asset_library(BUILTIN_ASSET_LIBRARY_NAME, ASSETS_ROOT)
+    ok = register_asset_library(BUILTIN_ASSET_LIBRARY_NAME, PUBLISHED_ASSETS_DIR)
     if not ok:
         print("HoGLTF: failed to register builtin asset library.")
         return False

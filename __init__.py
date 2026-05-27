@@ -94,10 +94,12 @@ class HoGLTFMaterialSettings(bpy.types.PropertyGroup):
 class HOGLTF_OT_register_asset_library(bpy.types.Operator):
     bl_idname = "hogltf.register_asset_library"
     bl_label = "注册 HoGLTF 内置资产库"
-    bl_description = "将 HoGLTF 内置资产库注册到 Blender 资产库中，可在资产浏览器中使用材质契约节点组"
+    bl_description = "将 HoGLTF 正式发布资产目录注册到 Blender 资产库中，可在资产浏览器中使用材质契约节点组"
 
     def execute(self, context):
-        asset_path = asset_registry.ASSETS_ROOT
+        asset_path = asset_registry.PUBLISHED_ASSETS_DIR
+        asset_registry.remove_asset_library(asset_registry.ASSETS_ROOT)
+        asset_registry.remove_asset_library(asset_registry.MATERIAL_CONTRACTS_DIR)
         if asset_registry.asset_library_exists(asset_path):
             self.report({"INFO"}, "HoGLTF 内置资产库已经注册过了")
             return {"CANCELLED"}
@@ -121,8 +123,8 @@ class HoGLTFAddonPreferences(bpy.types.AddonPreferences):
         row.alert = False
 
         col = layout.column(align=True)
-        col.label(text=f"资产目录：{asset_registry.ASSETS_ROOT}")
-        col.label(text=f"契约资产：{asset_registry.LIL_MATERIAL_CONTRACT_BLEND.name}")
+        col.label(text=f"资产库目录：{asset_registry.PUBLISHED_ASSETS_DIR}")
+        col.label(text=f"材质契约：{asset_registry.LIL_MATERIAL_CONTRACT_BLEND.name}")
 
 
 class HOGLTF_PT_material_settings(bpy.types.Panel):
